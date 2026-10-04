@@ -1,0 +1,26 @@
+Selequo #025 — NEXT STEPS（2026-10-04）
+
+[人の判断・承認が必要]
+1. 商標・名称確認（J-PlatPat / USPTO / EUIPO / WIPO / App Store / Google Play / ドメイン）— SOURCE_NOTES §1.2
+2. ホスティング・DB・ストレージ・AIプロバイダの契約（有料契約は承認後）と本番デプロイ
+3. 利用規約・プライバシーポリシー・特商法表記、URL取得機能の法的確認
+4. 料金プランとAI利用上限（OPERATING_COSTS §4）
+5. 実機テスト（iPhone Safari / Android Chrome / iPad）とPWAインストール確認
+6. 第三者ペネトレーションテスト
+
+[開発の残作業（優先順）]
+1. S3互換オブジェクトストレージ実装（複数台構成に必須）＋共有レート制限ストア
+2. 番号付きDBマイグレーション機構（schemaVersion 2 以降）
+3. AI抽出の精度評価セット（日本語の実ページ/PDF/スクショ）とプロンプト調整、トークン数の正確な記録
+4. MCP: 仕様 2026-07-28 / SDK v2 への移行検討、OAuth 2.1（Protected Resource Metadata）対応、ChatGPT Apps/Plugin・Codex 連携の実地検証
+5. スクショのローカルOCR（任意）: tesseract.js（言語データを自前ホスト）または Cloud OCR を評価して選定
+6. JS必須ページのブラウザレンダリング（Playwright / Cloudflare Browser Run、SSRF ガードをリクエスト単位で適用）
+7. Semantic search（pgvector＋Embedding、削除連動は既存の embeddings テーブルで対応済み）
+8. パスワードリセット・招待のメール送信、アカウントのセルフ削除
+9. 予算上限によるAI自動停止、Batch/キャッシュによるコスト最適化
+10. 負荷試験（大きなPDF・1,000ソース規模・同時アクセス）
+
+[Pro候補（指示 §25、未着手）]
+Browser Extension / Drive・Dropbox / Team approval / scheduled price refresh / vendor questionnaire / API・Webhook / custom templates / self-hosted AI / SSO
+
+※ 指示 §31「完成後は勝手に機能追加しない」に従い、上記は承認後に着手する。
