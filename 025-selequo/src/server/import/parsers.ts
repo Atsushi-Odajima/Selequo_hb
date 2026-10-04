@@ -108,6 +108,15 @@ function dedupeLines(lines: string[]): string[] {
 export async function parsePdf(data: Uint8Array): Promise<ParsedDoc> {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const task = pdfjs.getDocument({ data: new Uint8Array(data), disableFontFace: true, useSystemFonts: false, verbosity: 0 });
+  const timer = setTimeout(() => void task.destroy(), 30_000); // hard limit for pathological PDFs
+  try {
+    return await readPdf(task);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function readPdf(task: { promise: Promise<any>; destroy: () => Promise<void> }): Promise<ParsedDoc> {
   const doc = await task.promise;
   const pages: string[] = [];
   try {

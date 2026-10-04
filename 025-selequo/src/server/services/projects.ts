@@ -50,7 +50,7 @@ export async function createProject(ctx: Ctx, input: z.infer<typeof ProjectInput
       );
     }
   });
-  await indexEntity(ctx.db, ctx.workspaceId, 'project', id, input.title, `${input.purpose ?? ''} ${input.category ?? ''}`);
+  await indexEntity(ctx.db, ctx.workspaceId, 'project', id, id, input.title, `${input.purpose ?? ''} ${input.category ?? ''}`);
   await audit(ctx, 'project.create', { type: 'project', id, projectId: id }, { title: input.title });
   return getProject(ctx, id);
 }
@@ -88,7 +88,7 @@ export async function updateProject(ctx: Ctx, id: string, input: Partial<z.infer
     `UPDATE projects SET title=$3, category=$4, purpose=$5, deadline=$6, status=$7, currency=$8, locale=$9, ai_enabled=$10, fact_policy=$11, default_params=$12, updated_at=now() WHERE id=$1 AND workspace_id=$2`,
     [id, ctx.workspaceId, next.title, next.category, next.purpose, next.deadline, next.status, next.currency, next.locale, next.ai_enabled, next.fact_policy, JSON.stringify(next.default_params)],
   );
-  await indexEntity(ctx.db, ctx.workspaceId, 'project', id, next.title, `${next.purpose ?? ''} ${next.category ?? ''}`);
+  await indexEntity(ctx.db, ctx.workspaceId, 'project', id, id, next.title, `${next.purpose ?? ''} ${next.category ?? ''}`);
   await audit(ctx, input.aiEnabled !== undefined && input.aiEnabled !== cur.ai_enabled ? 'project.ai_toggle' : 'project.update', { type: 'project', id, projectId: id }, input);
   return getProject(ctx, id);
 }
@@ -110,7 +110,7 @@ export const touch = (ctx: Ctx, projectId: string) => ctx.db.query(`UPDATE proje
 export const CandidateInput = z.object({
   name: z.string().trim().min(1).max(120),
   provider: z.string().trim().max(120).nullish(),
-  url: z.string().trim().url().max(2000).nullish().or(z.literal('')),
+  url: z.string().trim().url().max(2000).refine((u) => /^https?:\/\//i.test(u), 'http/https のURLのみ').nullish().or(z.literal('')),
   notes: z.string().max(5000).nullish(),
   tags: z.array(z.string().trim().max(30)).max(20).optional(),
   status: z.enum(CANDIDATE_STATUSES).optional(),
@@ -138,7 +138,7 @@ export async function createCandidate(ctx: Ctx, projectId: string, input: z.infe
     input.tags ?? [],
     (n?.n ?? 0) * 10,
   ]);
-  await indexEntity(ctx.db, ctx.workspaceId, 'candidate', id, input.name, `${input.provider ?? ''} ${input.notes ?? ''} ${(input.tags ?? []).join(' ')}`);
+  await indexEntity(ctx.db, ctx.workspaceId, 'candidate', id, projectId, input.name, `${input.provider ?? ''} ${input.notes ?? ''} ${(input.tags ?? []).join(' ')}`);
   await audit(ctx, 'candidate.create', { type: 'candidate', id, projectId }, { name: input.name });
   await touch(ctx, projectId);
   return mapRow<Candidate>((await ctx.db.one(`SELECT * FROM candidates WHERE id = $1`, [id]))!);
@@ -161,7 +161,7 @@ export async function updateCandidate(ctx: Ctx, id: string, input: Partial<z.inf
     next.tags ?? [],
     next.status,
   ]);
-  await indexEntity(ctx.db, ctx.workspaceId, 'candidate', id, next.name, `${next.provider ?? ''} ${next.notes ?? ''} ${(next.tags ?? []).join(' ')}`);
+  await indexEntity(ctx.db, ctx.workspaceId, 'candidate', id, cur.project_id, next.name, `${next.provider ?? ''} ${next.notes ?? ''} ${(next.tags ?? []).join(' ')}`);
   await audit(ctx, input.status && input.status !== cur.status ? 'candidate.status' : 'candidate.update', { type: 'candidate', id, projectId: cur.project_id }, input);
   return mapRow<Candidate>((await ctx.db.one(`SELECT * FROM candidates WHERE id = $1`, [id]))!);
 }
@@ -201,7 +201,7 @@ export async function createAttribute(ctx: Ctx, projectId: string, input: z.inpu
   const parsed = AttributeInput.parse(input);
   const key = parsed.key || slugKey(parsed.displayName);
   const cat = CATALOG_BY_KEY.get(key);
-  const exists = await ctx.db.one(`SELECT id, status FROM attributes WHERE project_id = $1 AND key = $2`, [projectId, key]);
+  const exists = await ctx.db.one(`SELECT id, status FROM attributes WHERE project_id = $1 AND key = $2 AND workspace_id = $3`, [projectId, key, ctx.workspaceId]);
   if (exists) {
     await ctx.db.query(`UPDATE attributes SET status = $2, display_name = $3, group_name = COALESCE($4, group_name) WHERE id = $1`, [exists.id, parsed.status ?? 'active', parsed.displayName, parsed.groupName ?? null]);
   } else {
@@ -258,7 +258,7 @@ export async function attributeSuggestions(ctx: Ctx, projectId: string) {
 export async function mapLabel(ctx: Ctx, projectId: string, label: string, attributeKey: string) {
   need(ctx, 'editor');
   await getProjectRow(ctx, projectId);
-  const attr = await ctx.db.one(`SELECT * FROM attributes WHERE project_id = $1 AND key = $2`, [projectId, attributeKey]);
+  const attr = await ctx.db.one(`SELECT * FROM attributes WHERE project_id = $1 AND key = $2 AND workspace_id = $3`, [projectId, attributeKey, ctx.workspaceId]);
   if (!attr) throw notFound('属性');
   const prev = await ctx.db.one<{ version: number }>(`SELECT max(version) AS version FROM normalization_rules WHERE project_id = $1 AND pattern = $2`, [projectId, label]);
   await ctx.db.query(`UPDATE normalization_rules SET active = false WHERE project_id = $1 AND pattern = $2`, [projectId, label]);
@@ -471,7 +471,7 @@ export async function createQuestion(ctx: Ctx, projectId: string, input: z.infer
     input.text,
     ctx.actor.userId,
   ]);
-  await indexEntity(ctx.db, ctx.workspaceId, 'question', id, input.text, '');
+  await indexEntity(ctx.db, ctx.workspaceId, 'question', id, projectId, input.text, '');
   await audit(ctx, 'question.create', { type: 'question', id, projectId });
   return mapRow<Question>((await ctx.db.one(`SELECT * FROM questions WHERE id = $1`, [id]))!);
 }
@@ -496,7 +496,7 @@ export async function updateQuestion(ctx: Ctx, id: string, input: z.infer<typeof
     input.answerSourceId !== undefined ? input.answerSourceId : cur.answer_source_id,
     input.answerFactId !== undefined ? input.answerFactId : cur.answer_fact_id,
   ]);
-  await indexEntity(ctx.db, ctx.workspaceId, 'question', id, cur.text, input.answer ?? cur.answer ?? '');
+  await indexEntity(ctx.db, ctx.workspaceId, 'question', id, cur.project_id, cur.text, input.answer ?? cur.answer ?? '');
   await audit(ctx, 'question.update', { type: 'question', id, projectId: cur.project_id }, { status });
   return mapRow<Question>((await ctx.db.one(`SELECT * FROM questions WHERE id = $1`, [id]))!);
 }
@@ -546,6 +546,10 @@ export async function createComment(ctx: Ctx, projectId: string, input: { entity
   need(ctx, 'reviewer');
   await getProjectRow(ctx, projectId);
   const entityType = z.enum(['fact', 'criterion', 'brief', 'candidate', 'source', 'decision', 'project']).parse(input.entityType);
+  const entityTable = { fact: 'facts', criterion: 'criteria', brief: 'briefs', candidate: 'candidates', source: 'sources', decision: 'decisions' } as const;
+  if (entityType === 'project') {
+    if (input.entityId !== projectId) throw badRequest('対象が不正です');
+  } else await assertInProject(ctx, entityTable[entityType], input.entityId, projectId);
   const id = newId();
   await ctx.db.query(`INSERT INTO comments (id, workspace_id, project_id, entity_type, entity_id, body, author_id) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [
     id,

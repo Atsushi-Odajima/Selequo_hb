@@ -13,7 +13,7 @@ URL・PDF・スクリーンショット・メモから候補ごとの情報を�
 - 条件別比較: Criteria / Weight / Must-have（Pass/Fail/Unknown）/ Scenario（Travel・Performance・Budget など）
 - Decision Brief: MD / HTML / TXT / JSON / PDF、判断記録と90日後の振り返り
 - AI Research Assistant: 引用付き回答（AI OFF でもルールベースで動作）
-- PWA（オフラインメモ）、横断検索、エクスポート/インポート、バックアップ/リストア、MCP（11ツール）、RBAC、監査ログ
+- PWA（オフラインメモ）、横断検索、エクスポート/インポート、バックアップ/リストア、MCP（12ツール）、RBAC、監査ログ
 
 ## クイックスタート
 ```bash

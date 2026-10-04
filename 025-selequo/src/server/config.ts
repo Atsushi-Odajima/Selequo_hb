@@ -20,6 +20,7 @@ export interface Config {
   pdfRenderer: 'chromium' | 'none';
   cookieSecure: boolean;
   signupEnabled: boolean;
+  trustProxy: boolean | number | string; // number of proxy hops or proxy IPs; never blindly `true`
 }
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
@@ -45,6 +46,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     pdfRenderer: (process.env.PDF_RENDERER as Config['pdfRenderer']) ?? 'chromium',
     cookieSecure: env === 'production',
     signupEnabled: process.env.SIGNUP_ENABLED !== 'false',
+    trustProxy: process.env.TRUST_PROXY ? (/^\d+$/.test(process.env.TRUST_PROXY) ? Number(process.env.TRUST_PROXY) : process.env.TRUST_PROXY) : false,
     ...overrides,
   };
   if (cfg.env === 'production') {

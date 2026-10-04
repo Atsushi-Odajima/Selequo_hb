@@ -37,6 +37,25 @@ const V4_BLOCKS: [string, number][] = [
   ['255.255.255.255', 32],
 ];
 
+/** Parse an IPv6 literal (incl. embedded dotted IPv4) into 8 16-bit words. */
+export function ipv6Words(ip: string): number[] | null {
+  let s = ip.split('%')[0];
+  const m = s.match(/^(.*:)(\d+\.\d+\.\d+\.\d+)$/);
+  if (m) {
+    const o = m[2].split('.').map(Number);
+    if (o.some((x) => x > 255)) return null;
+    s = `${m[1]}${((o[0] << 8) | o[1]).toString(16)}:${((o[2] << 8) | o[3]).toString(16)}`;
+  }
+  const parts = s.split('::');
+  if (parts.length > 2) return null;
+  const head = parts[0] ? parts[0].split(':') : [];
+  const tail = parts.length === 2 && parts[1] ? parts[1].split(':') : [];
+  const fill = parts.length === 2 ? 8 - head.length - tail.length : 0;
+  if (fill < 0 || (parts.length === 1 && head.length !== 8)) return null;
+  const words = [...head, ...Array(fill).fill('0'), ...tail].map((h) => (/^[0-9a-f]{1,4}$/.test(h) ? parseInt(h, 16) : NaN));
+  return words.length === 8 && words.every((x) => Number.isFinite(x)) ? words : null;
+}
+
 export function isBlockedIp(ip: string): boolean {
   if (net.isIPv4(ip)) {
     const n = ipv4ToInt(ip);
@@ -46,23 +65,20 @@ export function isBlockedIp(ip: string): boolean {
     });
   }
   if (net.isIPv6(ip)) {
-    const lower = ip.toLowerCase().replace(/^\[|\]$/g, '');
-    if (lower === '::' || lower === '::1') return true;
-    // IPv4-mapped / compatible / NAT64 forms → check embedded v4
-    const mapped = lower.match(/^(?:::ffff:|::|64:ff9b::)(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped) return isBlockedIp(mapped[1]);
-    const hexMapped = lower.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-    if (hexMapped) {
-      const hi = parseInt(hexMapped[1], 16);
-      const lo = parseInt(hexMapped[2], 16);
-      return isBlockedIp(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
-    }
-    const first = parseInt(lower.split(':')[0] || '0', 16);
-    if ((first & 0xfe00) === 0xfc00) return true; // fc00::/7 ULA (incl. fd00:ec2::254 metadata)
-    if ((first & 0xffc0) === 0xfe80) return true; // link-local
-    if ((first & 0xff00) === 0xff00) return true; // multicast
-    if (lower.startsWith('2001:db8')) return true; // documentation
-    return false;
+    const w = ipv6Words(ip.toLowerCase().replace(/^\[|\]$/g, ''));
+    if (!w) return true;
+    // Embedded-IPv4 forms are checked against the IPv4 rules:
+    // ::/96 (compat), ::ffff:0:0/96 (mapped), ::ffff:0:0:0/96 (SIIT), 64:ff9b::/96 (NAT64)
+    const v4 = (hi: number, lo: number) => `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+    if (w.slice(0, 6).every((x) => x === 0)) return w[6] === 0 && w[7] <= 1 ? true : isBlockedIp(v4(w[6], w[7]));
+    if (w.slice(0, 5).every((x) => x === 0) && w[5] === 0xffff) return isBlockedIp(v4(w[6], w[7]));
+    if (w.slice(0, 4).every((x) => x === 0) && w[4] === 0xffff && w[5] === 0) return isBlockedIp(v4(w[6], w[7]));
+    if (w[0] === 0x64 && w[1] === 0xff9b) return true; // NAT64 (well-known and local-use 64:ff9b:1::/48) — never fetch through translators
+    if (w[0] === 0x2002) return true; // 6to4 embeds IPv4
+    if (w[0] === 0x2001 && w[1] === 0) return true; // Teredo
+    if (w[0] === 0x2001 && w[1] === 0xdb8) return true; // documentation
+    // only global unicast 2000::/3 is allowed
+    return (w[0] & 0xe000) !== 0x2000;
   }
   return true; // not an IP → treat as blocked
 }

@@ -1,7 +1,7 @@
 // Deterministic, local fact extractor (no network, no AI). Produces *candidate* facts only;
 // a human confirms or rejects them. Lines flagged as prompt injection are never extracted.
 
-import { matchLabel, type AliasRule, CATALOG_BY_KEY } from '../../shared/attributes';
+import { matchLabel, type AliasRule, type CatalogAttribute, CATALOG_BY_KEY } from '../../shared/attributes';
 import { normalizeValue, shapeFor, type NormalizeIssue } from '../../shared/normalize';
 import { detectInjection, isOpinion } from '../../shared/textsafety';
 import type { FactKind, NormalizedValue, SourceRange } from '../../shared/types';
@@ -25,6 +25,7 @@ export interface ExtractInput {
   pages: string[];
   paged: boolean; // true for PDF (page numbers are cited)
   rules?: AliasRule[];
+  extra?: CatalogAttribute[]; // project-defined attributes (with their aliases)
   forceOpinion?: boolean; // e.g. user-review sources
 }
 
@@ -74,7 +75,7 @@ export function extractFacts(input: ExtractInput): { facts: ExtractedFact[]; inj
         const rawLabel = m[1].trim();
         const rawValue = m[2].trim();
         if (/[\d\p{L}]/u.test(rawLabel) && rawValue && !/^https?:\/\//i.test(rawValue) && !/^https?$/i.test(rawLabel)) {
-          const match = matchLabel(rawLabel, input.rules);
+          const match = matchLabel(rawLabel, input.rules, input.extra);
           const valueStart = ln.start + ln.text.lastIndexOf(m[2].trim());
           push({
             rawLabel,
@@ -110,7 +111,8 @@ export function extractFacts(input: ExtractInput): { facts: ExtractedFact[]; inj
       let normalized: NormalizedValue | null = null;
       let issue: NormalizeIssue = null;
       if (x.key) {
-        const r = normalizeValue(shapeFor(x.key), x.rawValue);
+        const ex = input.extra?.find((a) => a.key === x.key);
+        const r = normalizeValue(shapeFor(x.key, ex ? { type: ex.type, unit: ex.unit ?? null } : undefined), x.rawValue);
         normalized = r.value;
         issue = r.issue;
         // unit mismatch → the label match is likely wrong; keep the fact but unmapped for human review

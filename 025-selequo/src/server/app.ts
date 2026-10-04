@@ -27,6 +27,7 @@ import * as B from './services/backup';
 import * as SH from './services/share';
 import { search } from './services/search';
 import { registerMcp } from '../mcp/http';
+import { sha256 } from './auth/crypto';
 import type { Role } from '../shared/types';
 
 export interface BuildOptions {
@@ -68,7 +69,7 @@ export async function buildApp(opts: BuildOptions) {
   });
   if (opts.startJobs !== false) runner.start();
 
-  const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 2 * 1024 * 1024, trustProxy: config.env === 'production' });
+  const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 2 * 1024 * 1024, trustProxy: config.trustProxy as boolean });
   await app.register(cookie);
   await app.register(helmet, {
     contentSecurityPolicy: {
@@ -92,7 +93,18 @@ export async function buildApp(opts: BuildOptions) {
     crossOriginEmbedderPolicy: false,
     hsts: config.env === 'production',
   });
-  await app.register(rateLimit, { max: 600, timeWindow: '1 minute', allowList: config.env === 'test' ? () => true : undefined });
+  // key by session / API token when present (users behind one office NAT do not share a bucket), else by IP
+  await app.register(rateLimit, {
+    max: 600,
+    timeWindow: '1 minute',
+    allowList: config.env === 'test' ? () => true : undefined,
+    keyGenerator: (req) => {
+      const auth = req.headers.authorization;
+      const cookie = (req.headers.cookie ?? '').match(/(?:^|;\s*)slq_session=([^;]+)/)?.[1];
+      const id = auth?.startsWith('Bearer ') ? auth.slice(7) : cookie;
+      return id ? `k:${sha256(id).slice(0, 32)}` : `ip:${req.ip}`;
+    },
+  });
   await app.register(multipart, { limits: { fileSize: config.maxUploadBytes, files: 1, fields: 20 } });
 
   app.setErrorHandler((err, req, reply) => {
@@ -146,7 +158,8 @@ export async function buildApp(opts: BuildOptions) {
         return out === undefined ? { ok: true } : out;
       },
     });
-  const authLimit = { rateLimit: { max: config.env === 'test' ? 10_000 : 20, timeWindow: '1 minute' } };
+  // auth endpoints are always limited per IP (a forged cookie must not create a fresh bucket)
+  const authLimit = { rateLimit: { max: config.env === 'test' ? 10_000 : 20, timeWindow: '1 minute', keyGenerator: (req: FastifyRequest) => `ip:${req.ip}` } };
   const importLimit = { rateLimit: { max: config.env === 'test' ? 10_000 : 60, timeWindow: '1 minute' } };
 
   const setSession = (reply: FastifyReply, token: string) =>
@@ -211,7 +224,7 @@ export async function buildApp(opts: BuildOptions) {
   app.get('/api/files', async (req, reply) => {
     const q = req.query as Record<string, string>;
     if (!q.key || !verifyFileSignature(config.secret, q.key, q.exp, q.sig)) throw new HttpError(403, 'forbidden', 'リンクの有効期限が切れています');
-    const src = await db.one<{ mime: string; file_name: string | null }>(`SELECT mime, file_name FROM sources WHERE file_key = $1 AND status <> 'deleted'`, [q.key]);
+    const src = await db.one<{ mime: string; file_name: string | null }>(`SELECT mime, file_name FROM sources WHERE file_key = $1 AND status <> 'deleted' AND $1 LIKE 'ws/' || workspace_id || '/%'`, [q.key]);
     if (!src) throw new HttpError(404, 'not_found', 'ファイルが見つかりません');
     const data = await storage.get(q.key);
     if (!data) throw new HttpError(404, 'not_found', 'ファイルが見つかりません');
@@ -233,7 +246,22 @@ export async function buildApp(opts: BuildOptions) {
     const project = await P.getProject(ctx, link.project_id);
     const compare = await C.getCompare(ctx, link.project_id);
     const brief = await D.buildProjectBrief(ctx, link.project_id);
-    return { project: { title: project.title, purpose: project.purpose, category: project.category }, compare, brief };
+    // minimal DTO for guests: no internal ids, notes, fact ids or source keys
+    return {
+      project: { title: project.title, purpose: project.purpose, category: project.category },
+      compare: {
+        candidates: compare.candidates.map((c, i) => ({ id: `c${i}`, name: c.name })),
+        rows: compare.rows.map((r) => ({
+          attributeKey: r.attributeKey,
+          displayName: r.displayName,
+          differs: r.differs,
+          cells: r.cells.map((c) => ({ candidateId: `c${compare.candidates.findIndex((x) => x.id === c.candidateId)}`, status: c.status, display: c.display, verified: c.verified })),
+        })),
+        statement: compare.statement,
+        caveats: compare.caveats,
+      },
+      brief: { ...brief, candidates: brief.candidates.map((c, i) => ({ ...c, id: `c${i}` })), evidence: brief.evidence.map((e) => ({ ...e, factId: '' })) },
+    };
   });
 
   // ---------- workspace

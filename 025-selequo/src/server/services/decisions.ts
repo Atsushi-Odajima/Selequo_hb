@@ -54,7 +54,7 @@ export async function saveDecision(ctx: Ctx, projectId: string, input: z.input<t
     await ctx.db.query(`UPDATE projects SET status = 'decided', updated_at = now() WHERE id = $1`, [projectId]);
   }
   const fresh = (await getDecision(ctx, projectId))!;
-  await indexEntity(ctx.db, ctx.workspaceId, 'decision', id, `判断: ${fresh.reason.slice(0, 80)}`, `${fresh.reason}\n${fresh.assumptions ?? ''}\n${fresh.expectedOutcome ?? ''}`);
+  await indexEntity(ctx.db, ctx.workspaceId, 'decision', id, projectId, `判断: ${fresh.reason.slice(0, 80)}`, `${fresh.reason}\n${fresh.assumptions ?? ''}\n${fresh.expectedOutcome ?? ''}`);
   await audit(ctx, d.finalize ? 'decision.decide' : 'decision.draft', { type: 'decision', id, projectId }, { chosenCandidateId: d.chosenCandidateId, reviewDate });
   return fresh;
 }
@@ -86,7 +86,7 @@ export async function buildProjectBrief(ctx: Ctx, projectId: string): Promise<Br
   const compare = await getCompare(ctx, projectId, { scenarioId: decision?.scenarioId ?? null });
   const matrix = await getScenarioMatrix(ctx, projectId);
   const questions = await listQuestions(ctx, projectId);
-  const srcRows = await ctx.db.query(`SELECT s.id, s.title, s.url, s.type, s.quality, s.retrieved_at, s.captured_at FROM sources s WHERE s.project_id = $1 AND s.status <> 'deleted'`, [projectId]);
+  const srcRows = await ctx.db.query(`SELECT s.id, s.title, s.url, s.type, s.quality, s.retrieved_at, s.captured_at FROM sources s WHERE s.project_id = $1 AND s.workspace_id = $2 AND s.status <> 'deleted'`, [projectId, ctx.workspaceId]);
   return buildBrief({
     project: { title: project.title, purpose: project.purpose, category: project.category, deadline: project.deadline ? String(project.deadline instanceof Date ? project.deadline.toISOString().slice(0, 10) : project.deadline) : null, currency: project.currency },
     compare,

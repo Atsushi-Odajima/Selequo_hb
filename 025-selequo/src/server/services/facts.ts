@@ -40,13 +40,13 @@ export async function listFacts(ctx: Ctx, projectId: string, filter: { candidate
 export async function getEvidence(ctx: Ctx, factId: string) {
   const row = await assertInProject(ctx, 'facts', factId);
   const fact = mapFact(row);
-  const src = await ctx.db.one(`SELECT s.*, u.name AS created_by_name FROM sources s LEFT JOIN users u ON u.id = s.created_by WHERE s.id = $1`, [fact.sourceId]);
+  const src = await ctx.db.one(`SELECT s.*, u.name AS created_by_name FROM sources s LEFT JOIN users u ON u.id = s.created_by WHERE s.id = $1 AND s.workspace_id = $2`, [fact.sourceId, ctx.workspaceId]);
   if (!src) throw notFound('ソース');
   const source = mapRow<Record<string, any>>(src) as Record<string, any>;
   delete source.extractedText;
   delete source.pages;
   const siblings = fact.attributeKey
-    ? (await ctx.db.query(`SELECT f.*, s.title AS source_title, s.quality AS source_quality FROM facts f JOIN sources s ON s.id = f.source_id WHERE f.candidate_id = $1 AND f.attribute_key = $2 AND f.id <> $3 AND s.status <> 'deleted' ORDER BY f.created_at`, [fact.candidateId, fact.attributeKey, fact.id])).map(mapFact)
+    ? (await ctx.db.query(`SELECT f.*, s.title AS source_title, s.quality AS source_quality FROM facts f JOIN sources s ON s.id = f.source_id WHERE f.candidate_id = $1 AND f.attribute_key = $2 AND f.id <> $3 AND f.workspace_id = $4 AND s.workspace_id = $4 AND s.status <> 'deleted' ORDER BY f.created_at`, [fact.candidateId, fact.attributeKey, fact.id, ctx.workspaceId])).map(mapFact)
     : [];
   const comments = mapRows(await ctx.db.query(`SELECT c.*, u.name AS author_name FROM comments c LEFT JOIN users u ON u.id = c.author_id WHERE c.entity_type = 'fact' AND c.entity_id = $1 AND c.workspace_id = $2 ORDER BY c.created_at`, [factId, ctx.workspaceId]));
   const history = mapRows(await ctx.db.query(`SELECT action, actor_type, actor_id, detail, created_at FROM audit_log WHERE workspace_id = $1 AND entity_type = 'fact' AND entity_id = $2 ORDER BY created_at`, [ctx.workspaceId, factId]));
@@ -77,7 +77,7 @@ export const ReviewInput = z.object({ action: z.enum(['confirm', 'reject', 'reop
 export async function reviewFact(ctx: Ctx, factId: string, input: z.infer<typeof ReviewInput>) {
   need(ctx, 'reviewer');
   const row = await assertInProject(ctx, 'facts', factId);
-  const src = await ctx.db.one(`SELECT status, type, created_by FROM sources WHERE id = $1`, [row.source_id]);
+  const src = await ctx.db.one(`SELECT status, type, created_by FROM sources WHERE id = $1 AND workspace_id = $2`, [row.source_id, ctx.workspaceId]);
   if (input.action === 'confirm') {
     // A fact without a live source can never be confirmed
     if (!src || src.status === 'deleted') throw badRequest('出典（Source）のないFactはConfirmedにできません');
@@ -138,7 +138,7 @@ export async function patchFact(ctx: Ctx, factId: string, input: z.infer<typeof 
   if (input.attributeKey !== undefined && input.attributeKey !== row.attribute_key) {
     key = input.attributeKey;
     if (key) {
-      const attr = await ctx.db.one(`SELECT type, unit FROM attributes WHERE project_id = $1 AND key = $2`, [row.project_id, key]);
+      const attr = await ctx.db.one(`SELECT type, unit FROM attributes WHERE project_id = $1 AND key = $2 AND workspace_id = $3`, [row.project_id, key, ctx.workspaceId]);
       if (!attr && !CATALOG_BY_KEY.has(key)) throw notFound('属性');
       const r = normalizeValue(shapeFor(key, attr ? { type: attr.type, unit: attr.unit } : undefined), row.raw_value);
       normalized = r.value;
@@ -198,7 +198,7 @@ export async function addManualFact(ctx: Ctx, projectId: string, input: z.infer<
   let normalized = null;
   let issue = null;
   if (key) {
-    const attr = await ctx.db.one(`SELECT type, unit FROM attributes WHERE project_id = $1 AND key = $2`, [projectId, key]);
+    const attr = await ctx.db.one(`SELECT type, unit FROM attributes WHERE project_id = $1 AND key = $2 AND workspace_id = $3`, [projectId, key, ctx.workspaceId]);
     const r = normalizeValue(shapeFor(key, attr ? { type: attr.type, unit: attr.unit } : undefined), input.value);
     normalized = r.value;
     issue = r.issue;

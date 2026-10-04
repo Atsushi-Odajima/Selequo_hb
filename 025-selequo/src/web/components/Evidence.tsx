@@ -98,7 +98,7 @@ export function EvidenceDrawer({ factId, onClose, onChanged }: { factId: string 
               </dd>
               <dt>タイトル</dt>
               <dd>{e.source.title ?? '-'}</dd>
-              {e.source.url && (
+              {e.source.url && /^https?:\/\//i.test(e.source.url) && (
                 <>
                   <dt>URL</dt>
                   <dd>

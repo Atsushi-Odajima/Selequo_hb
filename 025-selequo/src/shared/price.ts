@@ -88,6 +88,9 @@ export function computeCost(
     v = v * opts.seats;
     steps.push(`× ${opts.seats}席 = ${fmt(v)}`);
   }
+  if (opts.basis === 'as_listed' && snap.billingPeriod !== 'one_time') {
+    return { comparable: false, value: null, currency: opts.targetCurrency, steps, warnings: [...warnings, '表示価格基準では月額・年額などの周期付き価格を比較しません（年額合計か月額換算を選んでください）'] };
+  }
   if (opts.basis === 'annual_total') {
     if (snap.billingPeriod === 'monthly') {
       v = v * 12;

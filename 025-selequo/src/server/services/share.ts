@@ -45,7 +45,8 @@ export async function listAudit(ctx: Ctx, opts: { projectId?: string; limit?: nu
     params.push(opts.projectId);
     where += ` AND a.project_id = $2`;
   }
-  params.push(Math.min(opts.limit ?? 200, 1000));
+  const limit = Number.isFinite(opts.limit) && (opts.limit as number) > 0 ? Math.floor(opts.limit as number) : 200;
+  params.push(Math.min(limit, 1000));
   return mapRows(
     await ctx.db.query(
       `SELECT a.id, a.project_id, a.actor_type, a.actor_id, COALESCE(u.name, t.name) AS actor_name, a.action, a.entity_type, a.entity_id, a.detail, a.created_at

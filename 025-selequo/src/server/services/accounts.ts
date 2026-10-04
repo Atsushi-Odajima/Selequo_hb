@@ -142,7 +142,7 @@ export async function removeMember(ctx: Ctx, userId: string) {
 export async function createInvitation(ctx: Ctx, email: string, role: Role) {
   need(ctx, 'admin');
   RoleSchema.parse(role);
-  if (role === 'owner' && ctx.role !== 'owner') throw forbidden();
+  if ((role === 'owner' || role === 'admin') && ctx.role !== 'owner') throw forbidden('Owner/Adminの招待はOwnerのみ可能です');
   const token = newToken('inv_');
   const id = newId();
   await ctx.db.query(`INSERT INTO invitations (id, workspace_id, email, role, token_hash, expires_at, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [

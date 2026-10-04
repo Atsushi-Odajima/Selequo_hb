@@ -171,3 +171,13 @@ describe('backup zip validation', () => {
     await env.close();
   });
 });
+
+describe('SSRF IPv6 embedded-IPv4 forms', () => {
+  it('blocks NAT64 / 6to4 / Teredo / compat / SIIT forms and non-global ranges', () => {
+    for (const ip of ['64:ff9b::a00:1', '64:ff9b:1::a9fe:a9fe', '::7f00:1', '::ffff:0:7f00:1', '2002:7f00:1::', '2001:0:4136:e378::1', '::ffff:10.0.0.1', '::ffff:a9fe:a9fe', 'fc00::1', '::', '100::1']) {
+      expect(isBlockedIp(ip), ip).toBe(true);
+    }
+    expect(isBlockedIp('2606:4700:4700::1111')).toBe(false);
+    expect(isBlockedIp('::ffff:93.184.215.14')).toBe(false);
+  });
+});

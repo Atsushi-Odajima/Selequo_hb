@@ -96,6 +96,8 @@ export class Fetcher {
       const res = await request(url, {
         method: 'GET',
         dispatcher,
+        // overall deadline per request (slow-drip responses cannot hold a worker)
+        signal: AbortSignal.timeout((this.opts.timeoutMs ?? 10000) * 2),
         headers: { 'user-agent': USER_AGENT, accept: 'text/html,application/pdf,image/*;q=0.8,*/*;q=0.5', 'accept-language': 'ja,en;q=0.8' },
         maxRedirections: 0,
       } as never);
@@ -117,7 +119,7 @@ export class Fetcher {
       return { status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) };
     } catch (e) {
       if (e instanceof FetchError) throw e;
-      const msg = (e as Error).message ?? '';
+      const msg = (e as Error).name === 'TimeoutError' || (e as Error).name === 'AbortError' ? 'timeout' : ((e as Error).message ?? '');
       throw new FetchError(/timeout/i.test(msg) ? 'タイムアウトしました' : `取得に失敗しました: ${msg}`, /timeout/i.test(msg) ? 'timeout' : 'network');
     } finally {
       dispatcher.close().catch(() => {});

@@ -19,7 +19,7 @@
 - ✅ Decision Brief（MD/HTML/TXT/JSON/PDF）/ Decision Review（90日後）
 - ⚠️ Search（全文検索のみ。Semantic は未実装・optional）
 - ✅ Import / Export、Backup / Restore（空環境復元・関連一致を自動テスト）
-- ✅ MCP foundation（11ツール、choose_candidate なし、scope/ロール制御）
+- ✅ MCP foundation（12ツール、choose_candidate なし、scope/ロール制御）
 - ✅ AI OFF（送信0件をテスト）、Security / SSRF、Audit
 - ✅ 必須テスト / E2E（TEST_REPORT.md）
 - ✅ Brand / PWA assets、Docs、OPERATING_COSTS

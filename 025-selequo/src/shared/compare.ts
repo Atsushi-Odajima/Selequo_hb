@@ -112,6 +112,7 @@ export interface CompareResult {
 }
 
 const ACTIVE_STATES = new Set(['confirmed', 'candidate']);
+const QUALITY_RANK: Record<string, number> = { official: 0, manufacturer: 1, vendor: 2, editorial: 3, marketplace: 4, user_review: 5, manual: 6, unknown: 7 };
 
 export function validateWeights(weights: number[]): string[] {
   const errors: string[] = [];
@@ -144,7 +145,11 @@ export function buildCell(
   sourcesById: Map<string, SourceLite>,
   now: number,
 ): Cell {
-  const active = facts.filter((f) => f.kind === 'fact' && ACTIVE_STATES.has(f.reviewState));
+  // deterministic order: stronger sources first (official → … → unknown), then oldest first
+  const rank = (f: Fact) => QUALITY_RANK[sourcesById.get(f.sourceId)?.quality ?? 'unknown'] ?? 9;
+  const active = facts
+    .filter((f) => f.kind === 'fact' && ACTIVE_STATES.has(f.reviewState))
+    .sort((a, b) => rank(a) - rank(b) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
   const base = { candidateId, attributeKey: attr.key };
   if (active.length === 0) {
     return { ...base, status: 'unknown', display: 'Unknown', values: [], factIds: [], verified: false, needsReview: false, sourceAgeDays: null, officialSource: false };
@@ -408,7 +413,8 @@ export function compare(input: CompareInput, scenario: ScenarioInput | null = nu
       rank: null,
     };
   });
-  const ordered = scores.filter((s) => s.score !== null).sort((a, b) => b.score! - a.score! || a.name.localeCompare(b.name));
+  // candidates failing a must-have keep their score but are not ranked (Unknown is NOT a fail and stays ranked)
+  const ordered = scores.filter((s) => s.score !== null && s.mustHave.status !== 'fail').sort((a, b) => b.score! - a.score! || a.name.localeCompare(b.name));
   let rank = 0;
   let prev: number | null = null;
   ordered.forEach((s, i) => {
@@ -422,6 +428,7 @@ export function compare(input: CompareInput, scenario: ScenarioInput | null = nu
   let statement: string;
   const label = scenario?.name ? `Scenario「${scenario.name}」の` : '';
   if (weightErrors.length) statement = `Weight設定にエラーがあるためスコアを計算していません：${weightErrors.join(' / ')}`;
+  else if (!ordered.length && scores.some((x) => x.score !== null)) statement = `${label}Criteria設定では、すべての候補がいずれかのMust-haveを満たしていません（順位を付けていません）。`;
   else if (!ordered.length) statement = `${label}Criteria設定では、スコア計算に使える確認済みの値がまだありません。`;
   else {
     const top = ordered.filter((s) => s.rank === 1);
@@ -432,7 +439,7 @@ export function compare(input: CompareInput, scenario: ScenarioInput | null = nu
     if (top.some((t) => t.coverage < 1)) caveats.push('Unknownを含むCriteriaはスコアから除外しています（Unknownを0点として扱っていません）。範囲は Unknown が最悪/最良だった場合の値です。');
     const mhFail = scores.filter((s) => s.mustHave.status === 'fail').map((s) => s.name);
     const mhUnknown = scores.filter((s) => s.mustHave.status === 'unknown').map((s) => s.name);
-    if (mhFail.length) caveats.push(`Must-have未達：${mhFail.join('、')}`);
+    if (mhFail.length) caveats.push(`Must-have未達（順位の対象外）：${mhFail.join('、')}`);
     if (mhUnknown.length) caveats.push(`Must-have未確認（Unknown）：${mhUnknown.join('、')} — 不足情報であり不合格ではありません。`);
   }
   if (conflicts.length) caveats.push(`未解決のConflictが${conflicts.length}件あります。該当値はスコアから除外しています。`);

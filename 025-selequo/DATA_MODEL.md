@@ -111,7 +111,7 @@ erDiagram
 | Fact の Confirm/Reject/Reopen・一括レビュー・Conflict 解決、質問の作成/回答、メモ、コメント、Brief のレビュー状態変更、監査ログ閲覧（`reviewer`） | ✓ | ✓ | ✓ | ✓ | – |
 | プロジェクト作成/更新、候補 CRUD、ソース追加/更新/削除/再処理、手入力 Fact・Fact 再マップ、価格・為替、属性・正規化ルール、Criteria/Weight/Scenario、Decision 保存/振り返り、Brief 版作成、プロジェクト JSON インポート（`editor`） | ✓ | ✓ | ✓ | – | – |
 | ワークスペース設定、メンバー招待・ロール変更・削除、プロジェクト削除、バックアップ、共有リンク、他人のトークン失効（`admin`） | ✓ | ✓ | – | – | – |
-| Owner/Admin の付与・剥奪、Owner 招待、Admin の削除 | ✓ | – | – | – | – |
+| Owner/Admin の付与・剥奪、Owner/Admin の招待、Admin の削除 | ✓ | – | – | – | – |
 
 補足:
 - 最後の Owner は降格できず、Owner は削除できない（`setMemberRole` / `removeMember`）。

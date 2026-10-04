@@ -21,7 +21,7 @@ import { touch } from './projects';
 const QualitySchema = z.enum(SOURCE_QUALITIES);
 
 export const UrlSourceInput = z.object({
-  url: z.string().trim().url().max(2000),
+  url: z.string().trim().url().max(2000).refine((u) => /^https?:\/\//i.test(u), 'http/https のURLのみ登録できます'),
   candidateId: z.string().nullish(),
   quality: QualitySchema.optional(),
   title: z.string().max(300).nullish(),
@@ -76,7 +76,7 @@ export const FileSourceMeta = z.object({
   quality: QualitySchema.optional(),
   title: z.string().max(300).nullish(),
   capturedAt: z.string().datetime({ offset: true }).nullish(),
-  url: z.string().url().max(2000).nullish(),
+  url: z.string().url().max(2000).refine((u) => /^https?:\/\//i.test(u), 'http/https のURLのみ').nullish(),
   aiEnabled: z.boolean().optional(),
 });
 
@@ -123,7 +123,7 @@ export const TextSourceInput = z.object({
   title: z.string().max(300).nullish(),
   candidateId: z.string().nullish(),
   quality: QualitySchema.optional(),
-  url: z.string().url().max(2000).nullish(),
+  url: z.string().url().max(2000).refine((u) => /^https?:\/\//i.test(u), 'http/https のURLのみ').nullish(),
   aiEnabled: z.boolean().optional(),
 });
 
@@ -219,7 +219,7 @@ export async function reprocessSource(ctx: Ctx, id: string) {
 }
 
 async function projectRules(ctx: Ctx, projectId: string): Promise<AliasRule[]> {
-  return (await ctx.db.query<{ pattern: string; attribute_key: string }>(`SELECT pattern, attribute_key FROM normalization_rules WHERE project_id = $1 AND active = true`, [projectId])).map((r) => ({
+  return (await ctx.db.query<{ pattern: string; attribute_key: string }>(`SELECT pattern, attribute_key FROM normalization_rules WHERE project_id = $1 AND workspace_id = $2 AND active = true`, [projectId, ctx.workspaceId])).map((r) => ({
     pattern: r.pattern,
     attributeKey: r.attribute_key,
   }));
@@ -236,7 +236,7 @@ export async function processSource(ctx: Ctx, sourceId: string) {
     const patch: Record<string, unknown> = {};
     if (src.type === 'web') {
       const res = await ctx.fetcher.fetch(src.url);
-      const fileKey = `ws/${ctx.workspaceId}/p/${src.project_id}/web-${sha256(res.body).slice(0, 16)}${/pdf/i.test(res.contentType) ? '.pdf' : /html/i.test(res.contentType) ? '.html' : '.bin'}`;
+      const fileKey = `ws/${ctx.workspaceId}/p/${src.project_id}/web-${sha256(res.body).slice(0, 16)}-${newId().slice(0, 8)}${/pdf/i.test(res.contentType) ? '.pdf' : /html/i.test(res.contentType) ? '.html' : '.bin'}`;
       await ctx.storage.put(fileKey, res.body, res.contentType);
       patch.file_key = fileKey;
       patch.mime = res.contentType.split(';')[0];
@@ -278,7 +278,8 @@ export async function processSource(ctx: Ctx, sourceId: string) {
       }
       patch.publisher = src.publisher ?? (size ? `${size.width}×${size.height}px` : null);
     } else if (src.type === 'text') {
-      pages = [src.extracted_text ?? ''];
+      const data = src.file_key ? await ctx.storage.get(src.file_key) : null;
+      pages = [data ? new TextDecoder().decode(data).slice(0, 500_000) : (src.extracted_text ?? '')];
     } else if (src.type === 'csv') {
       const data = src.file_key ? await ctx.storage.get(src.file_key) : null;
       const text = data ? new TextDecoder().decode(data) : (src.extracted_text ?? '');
@@ -294,12 +295,17 @@ export async function processSource(ctx: Ctx, sourceId: string) {
     if (pages.some((p) => p.trim())) {
       const rules = await projectRules(ctx, src.project_id);
       const forceOpinion = src.quality === 'user_review';
-      const { facts, injectionFlags: flags } = extractFacts({ pages, paged, rules, forceOpinion });
+      const userAttrs = await ctx.db.query<{ key: string; display_name: string; type: string; unit: string | null; aliases: string[] }>(
+        `SELECT key, display_name, type, unit, aliases FROM attributes WHERE project_id = $1 AND workspace_id = $2 AND origin = 'user' AND status = 'active'`,
+        [src.project_id, ctx.workspaceId],
+      );
+      const extra = userAttrs.map((a) => ({ key: a.key, displayName: a.display_name, displayNameEn: a.display_name, type: a.type as 'text', unit: a.unit ?? undefined, category: 'general' as const, aliases: [a.display_name, ...a.aliases] }));
+      const { facts, injectionFlags: flags } = extractFacts({ pages, paged, rules, forceOpinion, extra });
       injectionFlags = flags;
       let all: (ExtractedFact & { by: string })[] = facts.map((f) => ({ ...f, by: 'parser' }));
       const ai = await aiFor(ctx, src.project_id, src as { ai_enabled: boolean });
       if (ai) {
-        const project = await ctx.db.one(`SELECT title, purpose FROM projects WHERE id = $1`, [src.project_id]);
+        const project = await ctx.db.one(`SELECT title, purpose FROM projects WHERE id = $1 AND workspace_id = $2`, [src.project_id, ctx.workspaceId]);
         const raw = await ai.extractFacts({ pages, paged, hint: `${project?.title ?? ''} ${project?.purpose ?? ''}`.slice(0, 300) });
         await recordAiCall(ctx, src.project_id, ai.id, 'extract', text.length, JSON.stringify(raw).length);
         const grounded = groundFacts(raw, pages);
@@ -365,7 +371,7 @@ export async function processSource(ctx: Ctx, sourceId: string) {
       ],
     );
     const fresh = await ctx.db.one(`SELECT title, url, extracted_text, project_id FROM sources WHERE id = $1`, [sourceId]);
-    await indexEntity(ctx.db, ctx.workspaceId, 'source', sourceId, fresh?.title ?? fresh?.url ?? 'source', `${fresh?.url ?? ''}\n${fresh?.extracted_text ?? ''}`);
+    await indexEntity(ctx.db, ctx.workspaceId, 'source', sourceId, src.project_id, fresh?.title ?? fresh?.url ?? 'source', `${fresh?.url ?? ''}\n${fresh?.extracted_text ?? ''}`);
     await touch(ctx, src.project_id);
   } catch (e) {
     const msg = e instanceof FetchError ? e.message : `処理に失敗しました: ${(e as Error).message}`;
@@ -413,7 +419,7 @@ export async function insertFact(
       );
     }
   }
-  await indexEntity(ctx.db, ctx.workspaceId, 'fact', id, `${f.rawLabel}: ${f.rawValue}`.slice(0, 300), f.sourceRange.context ?? '');
+  await indexEntity(ctx.db, ctx.workspaceId, 'fact', id, x.projectId, `${f.rawLabel}: ${f.rawValue}`.slice(0, 300), f.sourceRange.context ?? '');
   return id;
 }
 
@@ -422,7 +428,7 @@ async function importCsvFacts(ctx: Ctx, src: Record<string, any>, text: string) 
   const rows = parseCsv(text);
   if (rows.length < 2) throw new Error('CSVにデータ行がありません');
   const header = rows[0].map((h) => h.trim());
-  const cands = await ctx.db.query<{ id: string; name: string }>(`SELECT id, name FROM candidates WHERE project_id = $1`, [src.project_id]);
+  const cands = await ctx.db.query<{ id: string; name: string }>(`SELECT id, name FROM candidates WHERE project_id = $1 AND workspace_id = $2`, [src.project_id, ctx.workspaceId]);
   const byName = new Map(cands.map((c) => [c.name.trim().toLowerCase(), c.id]));
   const rules = await projectRules(ctx, src.project_id);
   const lower = header.map((h) => h.toLowerCase());
