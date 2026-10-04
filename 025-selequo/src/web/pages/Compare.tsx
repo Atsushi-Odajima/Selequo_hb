@@ -96,7 +96,7 @@ export function ComparePage() {
   if (!r.candidates.length) return <div className="empty">候補を登録すると比較表が表示されます。</div>;
   const scoreOf = (id: string) => r.scores.find((s) => s.candidateId === id);
   const mhOf = (id: string) => scoreOf(id)?.mustHave.status;
-  const hasScores = r.scores.some((s) => s.score !== null);
+  const hasScores = r.criteria.length > 0;
   const reload = () => {
     void cmp.reload();
     reloadMissing();
@@ -281,7 +281,7 @@ export function ComparePage() {
               return [
                 groupHeader,
                 <tr key={row.attributeKey} className={row.differs ? 'differs' : ''}>
-                  <th className="attr">{row.displayName}</th>
+                  <th className="attr" scope="row">{row.displayName}</th>
                   {row.cells.map((c) => (
                     <CellView key={c.candidateId} cell={c} onOpen={setOpen} />
                   ))}

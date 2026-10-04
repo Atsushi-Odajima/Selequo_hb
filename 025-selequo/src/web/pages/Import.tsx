@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { usePoll, useApi } from '../lib/api';
 import { can } from '../lib/session';
 import { ErrorBox, fmtDate, Icon, QUALITY_LABEL, QualityBadge, SOURCE_TYPE_LABEL, useAction } from '../components/ui';
@@ -18,6 +18,9 @@ export function ImportPage() {
   const [text, setText] = useState('');
   const [title, setTitle] = useState('');
   const [aiEnabled, setAiEnabled] = useState(true);
+  useEffect(() => {
+    if (!candidateId && candidates.length) setCandidateId(candidates[0].id);
+  }, [candidates, candidateId]);
   const processing = !!sources.data?.some((s) => s.status === 'pending' || s.status === 'processing');
   usePoll(processing, () => {
     void sources.reload();
@@ -78,7 +81,7 @@ export function ImportPage() {
           <div className="form-grid" style={{ marginBottom: 12 }}>
             <label className="field">
               候補
-              <select value={candidateId} onChange={(e) => setCandidateId(e.target.value)}>
+              <select aria-label="候補" value={candidateId} onChange={(e) => setCandidateId(e.target.value)}>
                 <option value="">（あとで紐付ける）</option>
                 {candidates.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -89,7 +92,7 @@ export function ImportPage() {
             </label>
             <label className="field">
               出典の種類（Source Quality）
-              <select value={quality} onChange={(e) => setQuality(e.target.value)}>
+              <select aria-label="出典の種類（Source Quality）" value={quality} onChange={(e) => setQuality(e.target.value)}>
                 {QUALITIES.map((q) => (
                   <option key={q} value={q}>
                     {QUALITY_LABEL[q]}
