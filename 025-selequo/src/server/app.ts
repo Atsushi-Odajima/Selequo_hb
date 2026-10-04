@@ -412,7 +412,7 @@ export async function buildApp(opts: BuildOptions) {
   // ---------- static web app (production build)
   const webDir = path.resolve(process.cwd(), 'dist/web');
   if (existsSync(webDir)) {
-    await app.register(fastifyStatic, { root: webDir, prefix: '/', wildcard: false, setHeaders: (res: any, p: string) => { if (p.endsWith('sw.js')) res.setHeader('cache-control', 'no-cache'); } });
+    await app.register(fastifyStatic, { root: webDir, prefix: '/', wildcard: false, setHeaders: (res: any, p: string) => { if (p.endsWith('sw.js')) (res.setHeader ?? res.header).call(res, 'cache-control', 'no-cache'); } });
     app.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith('/api/') || req.url.startsWith('/mcp')) return reply.status(404).send({ error: 'not_found', message: 'Not found' });
       return reply.type('text/html').sendFile('index.html');

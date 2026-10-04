@@ -146,7 +146,7 @@ export function buildBrief(args: {
     }));
   const latest = new Map<string, PriceSnapshot>();
   for (const p of args.prices) {
-    const k = `${p.candidateId}|${p.billingPeriod}|${p.perSeat}`;
+    const k = `${p.candidateId}|${p.sourceId ?? p.id}|${p.billingPeriod}|${p.perSeat}`;
     const cur = latest.get(k);
     if (!cur || Date.parse(p.capturedAt) > Date.parse(cur.capturedAt)) latest.set(k, p);
   }

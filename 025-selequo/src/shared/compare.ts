@@ -255,7 +255,7 @@ export function compare(input: CompareInput, scenario: ScenarioInput | null = nu
     // latest snapshot per offer type (period/per-seat)
     const latest = new Map<string, PriceSnapshot>();
     for (const s of snaps) {
-      const k = `${s.billingPeriod}|${s.perSeat}`;
+      const k = `${s.sourceId ?? s.id}|${s.billingPeriod}|${s.perSeat}`;
       const cur = latest.get(k);
       if (!cur || Date.parse(s.capturedAt) > Date.parse(cur.capturedAt)) latest.set(k, s);
     }
